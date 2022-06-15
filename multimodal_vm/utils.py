@@ -1,10 +1,12 @@
 import os
 import math
+import csv
 import random
 import numpy as np
 import nibabel as nib
 import torch
 import torch.nn.functional as F
+import SimpleITK as sitk
 
 
 def mkdir(directory):
@@ -29,7 +31,7 @@ def load_4D(imgpath):
 
 def save_img(arr, imgpath, ref):
     ref_img = nib.load(ref)
-    img = nib.Nifti1Image(arr, ref_img.affine, ref_img.header)
+    img = nib.Nifti1Image(arr.squeeze(), ref_img.affine, ref_img.header)
     nib.save(img, imgpath)
     # import SimpleITK as sitk
     # img = sitk.GetImageFromArray(arr)
@@ -38,8 +40,8 @@ def save_img(arr, imgpath, ref):
 
 def save_flow(arr, imgpath, ref):
     ref_img = nib.load(ref)
-    arr = arr.transpose([1, 2, 3, 0])
-    img = nib.Nifti1Image(arr, ref_img.affine, ref_img.header)
+    arr = arr.squeeze().transpose([1, 2, 3, 0])
+    img = nib.Nifti1Image(arr.squeeze(), ref_img.affine, ref_img.header)
     nib.save(img, imgpath)
     # import SimpleITK as sitk
     # img = sitk.GetImageFromArray(arr)
@@ -178,4 +180,85 @@ def mask(src, mask):
     mask = np.logical_not(mask)
     new_img = src * mask
     return new_img
-    
+
+
+def landmarks_csv2arr(csv_file):
+    coor_a = []
+    with open(csv_file, 'r') as lm:
+        csv_reader = csv.reader(lm)
+        for row in csv_reader:
+            if row[0] == 'Landmark':
+                continue
+            x = (round(float(row[1])))
+            y = (round(float(row[2])))
+            z = (round(float(row[3])))
+            coor = [x, y + 240, z]
+            # print(coor)
+            coor_a.append(coor)
+    return np.array(coor_a)
+
+
+def correct_bias(in_file, out_file, image_type=sitk.sitkFloat64):
+    '''
+    simpleitk N4
+    '''
+    input_image = sitk.ReadImage(in_file, image_type)
+    output_image_s = sitk.N4BiasFieldCorrection(input_image, input_image > 0)
+    sitk.WriteImage(output_image_s, out_file)
+    return os.path.abspath(out_file)
+
+
+def calc_histogram(gray_arr, p_range=None):
+    gray_arr = gray_arr.reshape(-1, 1)
+    if not p_range:
+        p_range = (gray_arr.min(), gray_arr.max())
+    hists = np.zeros(p_range[1] - p_range[0] + 1)
+    for p in gray_arr:
+        if p_range[0] <= p <= p_range[1]:
+            hists[p - p_range[0]] += 1
+    p_range = np.arange(p_range[0], p_range[1] + 1, 1)
+    return hists, p_range
+
+
+def calc_histogram_cdf(hists):
+    hists_cumsum = np.cumsum(hists)
+    hists_cdf = hists_cumsum / hists_cumsum[-1]
+    # hists_cdf = hists_cdf.astype(int)
+    return hists_cdf
+
+
+def histogram_equalization(img_arr, t_range=None):
+
+    # calculate hists
+    hists, p_range = calc_histogram(img_arr, t_range)
+
+    # equalization
+    # (m, n) = img_arr.shape
+    hists_cdf = calc_histogram_cdf(hists)  # calculate CDF
+    hists_cdf = np.concatenate([[0], hists_cdf])
+    # arr = np.zeros_like(img_arr)
+    arr = hists_cdf[img_arr]  # mapping
+    if not t_range:
+        t_range = p_range
+    arr = arr * t_range[-1]
+    return arr.astype(int)
+
+
+def gradient_diff(y_true, y_pred):
+    grad_1_vec, grad_1_abs = grad_img(y_true)
+    grad_2_vec, grad_2_abs = grad_img(y_pred)
+    grad_diff = grad_1_vec - grad_2_vec
+    grad_diff = torch.linalg.norm(grad_diff, axis=-1)
+    return torch.mean(grad_diff)
+
+
+def grad_img(x):
+    grad_x = x[:, :, 2:, :, :] - x[:, :, :-2, :, :]
+    grad_y = x[:, :, :, 2:, :] - x[:, :, :, :-2, :]
+    grad_z = x[:, :, :, :, 2:] - x[:, :, :, :, :-2]
+    grad_x = F.pad(grad_x, (0, 0, 0, 0, 1, 1), 'constant')
+    grad_y = F.pad(grad_y, (0, 0, 1, 1, 0, 0), 'constant')
+    grad_z = F.pad(grad_z, (1, 1, 0, 0, 0, 0), 'constant')
+    grad_vec = torch.stack([grad_x, grad_y, grad_z], dim=-1)
+    grad_abs = torch.sqrt(grad_x * grad_x + grad_y * grad_y + grad_z * grad_z)
+    return grad_vec, grad_abs

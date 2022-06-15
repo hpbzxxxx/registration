@@ -14,26 +14,26 @@ import trans
 import utils
 import losses
 
+# hyperparameter
+epochs = 2000
+continue_train = False
+start_epoch = 0
+alpha = 0.01 # 0.01 for mse, 1 for lncc
+learning_rate = 1e-4
+
 # make dir for log
-model_dir = './log/20220601/model/'
-loss_dir = './log/20220601/loss/'
-val_result = './log/20220601/val_result/'
-conf = './log/20220601/config.txt'
+model_dir = './log/20220614/model/'
+loss_dir = './log/20220614/loss/'
+val_result = './log/20220614/val_result/'
+conf = './log/20220614/config.txt'
 utils.mkdir(model_dir)
 utils.mkdir(loss_dir)
 utils.mkdir(val_result)
 with open(conf, 'w') as cfg:
     print('dataset: brats', file=cfg)
     print('model: vm', file=cfg)
-    print('loss: bi-MSE+0.01*smooth', file=cfg)
-    print('remark: no seg mask, pre_t1-post_t1', file=cfg)
-
-# hyperparameter
-epochs = 1500
-# iteration_per_epoch = 100
-continue_train = False
-start_epoch = 0
-alpha = 0.01 # 0.01 for mse, 1 for lncc
+    print('loss: mse+0.01*smooth', file=cfg)
+    print('remark: no seg mask, pre_t1-post_t1, N4', file=cfg)
 
 # enable cuda
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -41,20 +41,19 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # a_dir = '/home/hpm/downloads/OASIS3_procession/multi_reg/t1_160_224_192/'
 # b_dir = '/home/hpm/downloads/OASIS3_procession/multi_reg/t2_160_224_192/'
 dir = '/home/hpm/downloads/BraTS2022/training_some/'
-learning_rate = 1e-4
 
 # a_path = sorted(glob.glob(a_dir + '*.nii.gz'))
 # b_path = sorted(glob.glob(b_dir + '*.nii.gz'))
-a_path = sorted(glob.glob(dir + '*/*_00_????_t1.nii.gz'))
-b_path = sorted(glob.glob(dir + '*/*_01_????_t1.nii.gz'))
-pre_seg_path = sorted(glob.glob(dir + '*/*_00_????_seg.nii.gz'))
-post_seg_path = sorted(glob.glob(dir + '*/*_01_????_seg.nii.gz'))
+a_path = sorted(glob.glob(dir + '*/*_00_????_t1_N4.nii.gz'))
+b_path = sorted(glob.glob(dir + '*/*_01_????_t1_N4.nii.gz'))
+# pre_seg_path = sorted(glob.glob(dir + '*/*_00_????_seg.nii.gz'))
+# post_seg_path = sorted(glob.glob(dir + '*/*_01_????_seg.nii.gz'))
 
 # train dataset
 train_path_a = a_path[: round(len(a_path) * 0.7)]
 train_path_b = b_path[: round(len(b_path) * 0.7)]
-train_pre_seg_path = pre_seg_path[: round(len(pre_seg_path) * 0.7)]
-train_post_seg_path = post_seg_path[: round(len(post_seg_path) * 0.7)]
+# train_pre_seg_path = pre_seg_path[: round(len(pre_seg_path) * 0.7)]
+# train_post_seg_path = post_seg_path[: round(len(post_seg_path) * 0.7)]
 # train_path_a = a_path[: 10]
 # train_path_b = b_path[: 10]
 # utils.shift_list(train_path_a, 10)
@@ -62,8 +61,8 @@ train_post_seg_path = post_seg_path[: round(len(post_seg_path) * 0.7)]
 # val dataset
 val_path_a = a_path[round(len(a_path) * 0.7) : round(len(a_path) * 0.8)]
 val_path_b = b_path[round(len(b_path) * 0.7) : round(len(b_path) * 0.8)]
-val_pre_seg_path = pre_seg_path[round(len(pre_seg_path) * 0.7) : round(len(pre_seg_path) * 0.8)]
-val_post_seg_path = post_seg_path[round(len(post_seg_path) * 0.7) : round(len(post_seg_path) * 0.8)]
+# val_pre_seg_path = pre_seg_path[round(len(pre_seg_path) * 0.7) : round(len(pre_seg_path) * 0.8)]
+# val_post_seg_path = post_seg_path[round(len(post_seg_path) * 0.7) : round(len(post_seg_path) * 0.8)]
 # val_path_a = a_path[: 10]
 # val_path_b = b_path[: 10]
 # utils.shift_list(val_path_a, 10)
@@ -77,15 +76,15 @@ data_trans = transforms.Compose(
     ]
 )
 
-train_set = generator.Dataset_BraTS2022(list_a=train_path_a, list_b=train_path_b, transforms=data_trans, pre_seg=train_pre_seg_path, post_seg=train_post_seg_path)
+train_set = generator.Dataset_BraTS2022(list_a=train_path_a, list_b=train_path_b, transforms=data_trans, pre_seg=False, post_seg=False)
 train_Loader = Data.DataLoader(train_set, batch_size=1, shuffle=True, num_workers=0)
 
-val_set = generator.Dataset_BraTS2022(list_a=val_path_a, list_b=val_path_b, transforms=data_trans, pre_seg=val_pre_seg_path, post_seg=val_post_seg_path)
+val_set = generator.Dataset_BraTS2022(list_a=val_path_a, list_b=val_path_b, transforms=data_trans, pre_seg=False, post_seg=False)
 val_Loader = Data.DataLoader(val_set, batch_size=1, shuffle=False, num_workers=0)
 
 # create model
 model = network.VmNet(
-    inshape=(160, 192, 160), in_chs=2, enc_chs=[16, 32, 32, 32], dec_chs=[32, 32, 32, 32, 32, 16, 16], bi=True
+    inshape=(160, 192, 160), in_chs=2, enc_chs=[16, 32, 32, 32], dec_chs=[32, 32, 32, 32, 32, 16, 16]
 )
 
 model.to(device)
@@ -100,7 +99,7 @@ sim_loss = losses.MSE_loss
 # if load model
 if continue_train:
     start_epoch = 0
-    checkpoint_path = './log/20220601/model/checkpoint_0060.pth'
+    checkpoint_path = './log/20220614/model/checkpoint_0200.pth'
     model.load_state_dict(torch.load(checkpoint_path)['model'])
     optimizer.load_state_dict(torch.load(checkpoint_path)['optimizer'])
     start_epoch = torch.load(checkpoint_path)['epoch']
@@ -123,26 +122,10 @@ for epoch in range(start_epoch, epochs + 1):
             img_a = img_a.to(device)
             img_b = img_b.to(device)
 
-            y_pred, y_pred_neg, flow = model(img_a, img_b)
-
-            ################
-            # if epoch % 2 == 0 and i % 20 == 0:
-            #     t1_img = img_a.detach().cpu().numpy().squeeze()
-            #     t2_img = img_b.detach().cpu().numpy().squeeze()
-            #     # fea_t1 = fea_a.detach().cpu().numpy().squeeze()
-            #     # fea_t2 = fea_b.detach().cpu().numpy().squeeze()
-            #     pred = y_pred.detach().cpu().numpy().squeeze()
-            #     t = flow.detach().cpu().numpy().squeeze()
-            #     utils.save_img(t1_img, f'./train_result/t1_{epoch}_{i}.nii.gz', train_path_a[0])
-            #     utils.save_img(t2_img, f'./train_result/t2_{epoch}_{i}.nii.gz', train_path_a[0])
-            #     # utils.save_img(fea_t1, f'./train_result/fea_t1_{epoch}_{i}.nii.gz', train_path_a[0])
-            #     # utils.save_img(fea_t2, f'./train_result/fea_t2_{epoch}_{i}.nii.gz', train_path_a[0])
-            #     utils.save_img(pred, f'./train_result/pred_{epoch}_{i}.nii.gz', train_path_a[0])
-            #     utils.save_flow(t, f'./train_result/flow_{epoch}_{i}.nii.gz', train_path_a[0])
+            y_pred, flow = model(img_a, img_b)
 
             # loss
-            sim = 0.5 * sim_loss(y_pred, img_b) + 0.5 * sim_loss(y_pred_neg, img_a)
-            # sim = torch.clamp(sim, 0.0, 0.0224)
+            sim = sim_loss(y_pred, img_b)
             reg = losses.smooth_loss(flow)
             loss = sim + alpha * reg
 
@@ -187,32 +170,58 @@ for epoch in range(start_epoch, epochs + 1):
                 img_a = img_a.to(device)
                 img_b = img_b.to(device)
 
-                y_pred, y_pred_neg, flow = model(img_a, img_b, train=False)
+                y_pred, flow = model(img_a, img_b, train=False)
 
                 if epoch % 10 == 2 and i % 5 == 0:
                     moving = img_a.detach().cpu().numpy().squeeze()
                     fixed = img_b.detach().cpu().numpy().squeeze()
                     y_pred_out = y_pred.detach().cpu().numpy().squeeze()
-                    y_pred_neg_out = y_pred_neg.detach().cpu().numpy().squeeze()
+                    # y_pred_neg_out = y_pred_neg.detach().cpu().numpy().squeeze()
                     flow_out = flow.detach().cpu().numpy().squeeze()
                     utils.save_img(
                         y_pred_out, f'{val_result}pred{epoch}_{i}.nii.gz', val_path_a[i]
                     )
+                    # utils.save_img(
+                    #     y_pred_out[1], f'{val_result}pred{epoch}_{i}_t2.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     y_pred_out[2], f'{val_result}pred{epoch}_{i}_flair.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     y_pred_out[3], f'{val_result}pred{epoch}_{i}_t1ce.nii.gz', val_path_a[i]
+                    # )
                     utils.save_flow(
                         flow_out, f'{val_result}flow{epoch}_{i}.nii.gz', val_path_a[i]
                     )
                     utils.save_img(
                         moving, f'{val_result}moving_{i}.nii.gz', val_path_a[i]
                     )
+                    # utils.save_img(
+                    #     moving[1], f'{val_result}moving_{i}_t2.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     moving[2], f'{val_result}moving_{i}_flair.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     moving[3], f'{val_result}moving_{i}_t1ce.nii.gz', val_path_a[i]
+                    # )
                     utils.save_img(
                         fixed, f'{val_result}fixed_{i}.nii.gz', val_path_a[i]
                     )
-                    utils.save_img(
-                        y_pred_neg_out, f'{val_result}pred_neg{epoch}_{i}.nii.gz', val_path_a[i]
-                    )
+                    # utils.save_img(
+                    #     fixed[1], f'{val_result}fixed_{i}_t2.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     fixed[2], f'{val_result}fixed_{i}_flair.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     fixed[3], f'{val_result}fixed_{i}_t1ce.nii.gz', val_path_a[i]
+                    # )
+                    # utils.save_img(
+                    #     y_pred_neg_out, f'{val_result}pred_neg{epoch}_{i}.nii.gz', val_path_a[i]
+                    # )
 
-                sim = 0.5 * sim_loss(y_pred, img_b) + 0.5 * sim_loss(y_pred_neg, img_a)
-                # sim = torch.clamp(sim, 0.0, 0.0224)
+                sim = sim_loss(y_pred, img_b)
                 reg = losses.smooth_loss(flow)
                 loss = sim + alpha * reg
 
